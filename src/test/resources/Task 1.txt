@@ -1,0 +1,110 @@
+
+ Part A — Prompting for test design
+
+Context:
+- Users can update addresses during checkout. 
+- Checkout supports saved addresses, guest checkout, and promotional discounts.
+- Users may have multiple saved addresses.
+- The order management system (OMS) and confirmation email must reflect the updated address.
+- Postcode validation rules may vary by country (unconfirmed).
+- The feature is 'mostly done' but validation is still being finalized.
+
+Requirements for Output:
+1. Categorize scenarios by: Functional, Negative/Validation, Boundary, Integration (OMS/Email), and UI/UX.
+2. Include specific test cases with steps and expected results for each scenario.
+3. Highlight edge cases related to multiple saved addresses, guest users, and country-specific postcodes.
+4. Identify potential risks or areas where requirements are ambiguous."
+
+How to validate the AI output:
+1. Requirement Traceability: Cross-check every generated scenario against the user story and additional notes to ensure complete coverage and no hallucinations.
+2. Boundary/Equivalence Check: Manually verify that the AI included boundary values (e.g., max length of address fields) and negative cases (e.g., special characters in names).
+3. Risk-Based Review: Prioritize reviewing scenarios the AI generated for the unconfirmed postcode rules and OMS integration, as these are the highest risk areas.
+4. Peer Review: Have a human tester or BA review the AI output to catch logical gaps or domain-specific nuances the AI might have missed.
+
+---
+
+ Part B — Review and improve test coverage
+
+Review of Initial Test Cases:
+1. Change address during checkout and place order successfully: Valid but broad. It is a good "Happy Path" test but lacks specificity (e.g., changing to a saved address vs. a new address).
+2. Enter invalid postcode and check for error: Weak/Incomplete. It assumes a universal definition of "invalid." Given the notes, it must be expanded to test country-specific formats.
+3. Use saved address and complete checkout: Valid. Good for regression, but should be expanded to test switching between multiple saved addresses.
+4. Check that the confirmation email is sent: Incomplete. It only checks sending, not the content. The address in the email must match the updated one.
+
+Missing Scenarios:
+- Guest Checkout: Updating address as a guest user (no saved addresses).
+- Integration: Verifying the Order Management System (OMS) receives the updated address, not the original one.
+- Promotional Discounts: Ensuring changing the address doesn't wipe out applied promo codes.
+- Multiple Addresses: Changing from Address A to Address B when both are saved.
+- Partial Updates: Editing only the zip code vs. editing the entire address.
+- Session Timeout: Updating address after a session timeout or during a slow network.
+
+Prioritization & Why:
+1. OMS Integration (High): If the OMS gets the wrong address, the business problem (wrong deliveries) persists, defeating the feature's purpose.
+2. Guest Checkout (High): A large user base; if this fails, revenue is lost.
+3. Country-Specific Validation (Medium/High): High risk due to unconfirmed rules; needs early testing to avoid rework.
+4. Happy Path (Medium): Necessary for baseline functionality but less likely to uncover critical bugs than integration or edge cases.
+
+
+
+Part C — Test data design
+
+Test Data Requirements:
+
+  Positive:
+    Valid domestic and international addresses (matching confirmed postcode formats).
+    Saved addresses (multiple per user).
+    Guest user data (no saved addresses).
+    Valid promotional codes applied to the cart.
+  Boundary:
+    Max/min character limits for Address Line 1, Address Line 2, City, and Postcode.
+    Postcodes at the exact length limit for specific countries (e.g., 5-digit vs. 6-digit vs. alphanumeric).
+  Negative:
+     Invalid postcodes (letters in numeric-only fields, wrong length).
+    Special characters (`!@#$%^&*`) in name/address fields.
+    Empty required fields.
+    Mismatched City/Postcode combinations.
+  Role/State-based:
+    Logged-in user with 0, 1, and 5+ saved addresses.
+    Guest user.
+    User with an active session vs. a user whose session is about to expire.
+  Setup/Refresh/Reset/Masking/Isolation:**
+    Setup:** Create test users with pre-populated address books via API/DB before test execution.
+    Refresh:** Reset the cart and address state after each test case to ensure isolation.
+    Masking:** Mask PII (names, phone numbers) in test data to comply with privacy standards.
+    Isolation:** Ensure test data for one country's postcode rules does not interfere with another's.
+
+
+ Part D — Asking the right questions
+
+Most important questions before testing begins:
+
+1. Postcode Rules: What are the definitive postcode validation rules for each supported country? Is there a master list?
+2. OMS Sync: How does the OMS receive the address update? Is it an API call, a batch job, or a manual sync? What is the expected latency?
+3. Promo Codes: Does changing the delivery address trigger a recalculation of taxes or shipping costs that could invalidate a promo code?
+4. Guest Checkout: For guest users, is the address saved to their session? What happens if they refresh the page?
+5. Acceptance Criteria: What are the final, agreed-upon acceptance criteria (ACs) since they are "still being refined"?
+6. Email Trigger: Is the confirmation email triggered immediately upon order placement, or does it wait for the OMS to confirm the address?
+7. Error Handling: What is the specific error message and UI behavior when a postcode is invalid for a specific country?
+
+
+Part E — TLC management and reporting
+
+Assuming you are leading testing under delivery pressure:
+
+Plan and control testing: Adopt a Risk-Based Testing approach. Focus 80% of effort on the "critical path" (OMS integration, payment, and address validation for the primary market) and defer low-risk cosmetic tests.
+Manage scope, risks, dependencies, entry/exit criteria:
+    Scope: Freeze scope for the release. Move "nice-to-have" validations (e.g., obscure country postcodes) to the next sprint.
+    Risks: Log the risk of unconfirmed postcode rules. Mitigate by testing the most common countries first.
+    Dependencies: Ensure the OMS and Email service environments are stable before testing begins.
+    Entry/Exit Criteria:* Entry = Build deployed, ACs signed off. Exit = All P1/P2 bugs fixed, 100% critical path pass, and OMS integration verified.
+Organise work and review test outputs:
+   Use a shared test management tool (e.g., Jira/Xray).
+   Conduct daily 15-min stand-ups to unblock testers.
+   Implement a "Test Data Pool" to manage the limited shared data, using a booking system to avoid collisions.
+Manage defect triage and readiness reporting:
+   Hold daily triage meetings. Classify defects by severity (Impact on business) and priority (Urgency to fix).
+   Report readiness via a "Quality Dashboard" showing: % Test Execution, Defect Density, and a "Go/No-Go" recommendation based on the status of critical path tests.
+Communicate quality:
+   Provide daily concise summaries to stakeholders: "Today we validated X. We found Y critical issues. We are on track/at risk for release because Z."
+   Be transparent about the risks associated with the unconfirmed postcode rules and the limited test data.

@@ -1,0 +1,132 @@
+ Part A — Automation readiness and judgement (mandatory)
+
+1. What questions would you ask before starting automation?
+- Environment Stability: How often do other teams deploy to the shared SauceDemo site? Is there a dedicated, isolated environment we can use for regression runs?
+- Test Data Management: How do we handle test data? Are there specific "clean" accounts we can use, or do we need to create a mechanism to generate fresh users for each run? How do we prevent tests from interfering with each other?
+- CI/CD Integration: What CI/CD tool do you use (e.g., Jenkins, GitHub Actions)? How often should the regression suite run (e.g., nightly, on every PR)? Who should be notified when a test fails?
+- UI Locator Strategy: Since "buttons move around," do the developers use stable IDs or `data-test` attributes? If not, can we add them to reduce flakiness?
+- Scope of "Main Flow": Does the main purchase flow include negative scenarios (e.g., invalid credit card) or just the happy path?
+- Reporting: What format do you need for test results (e.g., JUnit XML, HTML report, Slack notifications)?
+
+2. Is this journey ready for reliable scheduled automation? Explain.
+-No, it is not currently ready for reliable scheduled automation.
+ --Shared Environment: The site is used by everyone, causing unpredictable states (e.g., carts having items already, duplicate orders). Scheduled automation requires a known, controlled baseline state.
+ --Flaky UI: The client mentions the UI "changes a bit" and "buttons move around." Without stable locators (e.g., IDs), automation scripts will break constantly, leading to high maintenance costs.
+ --Locked Accounts: "Test users stop working" indicates a lack of proper session management or account lockout policies. Automation requires reliable, reusable test accounts.
+ --Deployment Cadence: Frequent deployments without release notes mean the automation suite might fail due to unannounced changes, making it hard to distinguish between a real bug and an expected UI shift.
+
+3. Top risks and minimum controls or quality gates before scheduled execution:
+- Risk: Test Data Collision. Control: Implement unique test users generated per run, or use API calls to reset the cart state before each test.
+- Risk: Flaky UI Locators. Control: Quality Gate: Developers must commit to adding `data-test` attributes to critical elements (login, add to cart, checkout). Do not write automation without them.
+- Risk: Environment Instability. Control: Quality Gate: Establish a "Smoke Test" gate. If the initial login and add-to-cart fail, abort the regression suite and alert the team instead of running the full suite and generating false negatives.
+   Risk: Silent Failures. Control: Implement clear reporting (e.g., JUnit/HTML) integrated into the CI pipeline with alerts sent to a dedicated QA channel.
+
+4. What would you automate first in week one, and what would you deliberately not automate yet?
+   Automate First (Week 1):
+    Login: Automate the login step for a standard user. It's the gateway to everything else.
+    Add to Cart (Happy Path): Automate selecting a specific product and adding it to the cart. This validates core functionality and locator strategy.
+    Cart Validation: Verify the correct item is in the cart. This is a critical check that is often flaky manually.
+Deliberately NOT automate yet:
+    Payment Gateway Integration: If this involves third-party iframes or external systems, it's highly complex and flaky. Do it manually until the core flow is stable.
+    Visual Regression/UI Layout: Since the UI "changes a bit" and buttons move, automating visual checks now will result in constant failures. Wait until the UI stabilizes.
+    Full Order History/Backend Sync: Verifying the order appears in a backend system is an integration test that requires stable APIs and database access, which are not mentioned in the brief.
+
+
+Part B — Role-specific capability (Quality Engineer Path)
+
+Chosen Path: B1 — Quality Engineer (hands-on coding)
+Framework: Java, Selenium, TestNG (using Page Object Model)
+
+
+import io.github.bonigarcia.wdm.WebDriverManager;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+import java.time.Duration;
+
+public class SauceDemoPurchaseTest {
+
+    private WebDriver driver;
+
+    // Locators (Ideally stored in a separate Page Object class)
+    private final By usernameField = By.id("user-name");
+    private final By passwordField = By.id("password");
+    private final By loginButton = By.id("login-button");
+    private final By addToCartBackpack = By.id("add-to-cart-sauce-labs-backpack");
+    private final By cartIcon = By.className("shopping_cart_link");
+    private final By checkoutButton = By.id("checkout");
+    private final By firstNameField = By.id("first-name");
+    private final By lastNameField = By.id("last-name");
+    private final By postalCodeField = By.id("postal-code");
+    private final By continueButton = By.id("continue");
+    private final By finishButton = By.id("finish");
+    private final By confirmationHeader = By.className("complete-header");
+    private final By errorMessage = By.cssSelector("h3[data-test='error']");
+
+    @BeforeMethod
+    public void setUp() {
+        WebDriverManager.chromedriver().setup();
+        driver = new ChromeDriver();
+        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
+        driver.manage().window().maximize();
+        driver.get("https://www.saucedemo.com/");
+    }
+
+    @Test(priority = 1, description = "Positive Case: Standard user successfully completes purchase")
+    public void testSuccessfulPurchase() {
+        // 1. Log in
+        driver.findElement(usernameField).sendKeys("standard_user");
+        driver.findElement(passwordField).sendKeys("secret_sauce");
+        driver.findElement(loginButton).click();
+
+        // 2. Select product and add to cart
+        driver.findElement(addToCartBackpack).click();
+        
+        // 3. Go to cart and checkout
+        driver.findElement(cartIcon).click();
+        driver.findElement(checkoutButton).click();
+
+        // 4. Enter details
+        driver.findElement(firstNameField).sendKeys("John");
+        driver.findElement(lastNameField).sendKeys("Doe");
+        driver.findElement(postalCodeField).sendKeys("12345");
+        driver.findElement(continueButton).click();
+
+        // 5. Finish and confirm
+        driver.findElement(finishButton).click();
+        
+        // Assertion: Verify order confirmation
+        String confirmationText = driver.findElement(confirmationHeader).getText();
+        Assert.assertEquals(confirmationText, "Thank you for your order!", "Order confirmation failed.");
+    }
+
+    @Test(priority = 2, description = "Negative Case: Locked out user cannot login")
+    public void testLockedOutUserLogin() {
+        // 1. Attempt login with locked_out_user
+        driver.findElement(usernameField).sendKeys("locked_out_user");
+        driver.findElement(passwordField).sendKeys("secret_sauce");
+        driver.findElement(loginButton).click();
+
+        // Assertion: Verify error message appears
+        String actualError = driver.findElement(errorMessage).getText();
+        Assert.assertTrue(actualError.contains("Sorry, this user has been locked out"), 
+            "Expected locked out error message not displayed.");
+    }
+
+    @AfterMethod
+    public void tearDown() {
+        if (driver != null) {
+            driver.quit();
+        }
+    }
+}
+```
+
+Explanation of the Code:
+- Positive Case: Validates the core "main purchase flow" requested by the client. It uses the standard user credentials and follows the journey from login to final confirmation.
+- Negative Case: Addresses the client's complaint about "test users stopping" by explicitly testing the `locked_out_user` scenario. This ensures the application handles locked accounts gracefully with a clear error message.
+- Robustness: It uses `WebDriverManager` to handle driver binaries automatically (CI-friendly) and TestNG annotations (`@BeforeMethod`, `@AfterMethod`) to ensure a fresh browser instance for every test, preventing state leakage.
