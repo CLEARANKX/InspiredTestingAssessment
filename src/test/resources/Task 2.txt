@@ -1,0 +1,53 @@
+ Part A — Risk-based API test design
+
+Here are the top three most critical API test scenarios for the `GET /orders` endpoint.
+
+1. Retrieve Orders with Default Pagination (Happy Path)
+- Endpoint and method: `GET /orders`
+- Why it is critical: This is the primary consumption path for the API. If clients cannot retrieve a basic list of orders, the core functionality of the order management system is broken.
+Preconditions and request data: The system must contain more than 20 orders in the database. Request: `GET /v1/orders` with a valid Bearer token. No query parameters passed.
+
+Assertions:
+- Status code is `200 OK`.
+- Response body contains `data` (array) and `total` (integer).
+- The `data` array contains exactly 20 items (the default `limit`).
+-The `total` value accurately reflects the total number of orders in the system.
+One negative case with expected error behaviour:** Request without an Authorization header. Expected: `401 Unauthorized`.
+
+2. Filter Orders by Status (Business Logic)
+Endpoint and method: `GET /orders?status=pending`
+Why it is critical: Filtering is essential for operational workflows. If the filter fails, the UI cannot display specific order queues (e.g., orders needing shipment), directly impacting business operations.
+Preconditions and request data:** The database contains a mix of orders with statuses: `pending`, `paid`, `shipped`, and `cancelled`. Request: `GET /v1/orders?status=pending` with a valid Bearer token.
+
+Assertions:
+- Status code is `200 OK`.
+- Every object in the `data` array has a `status` field equal to `"pending"`.
+- No objects with other statuses are returned.
+One negative case with expected error behaviour:** Request with an invalid status: `GET /v1/orders?status=unknown`. *Expected:* `400 Bad Request` (or `422 Unprocessable Entity`) with an error message indicating the status value is invalid.
+
+3. Boundary Testing for Pagination Limit (Edge Case)
+- Endpoint and method: `GET /orders?limit=100` and `GET /orders?limit=101`
+- Why it is critical: The API defines strict boundaries for the `limit` parameter (min 1, max 100). Failing to enforce these could lead to performance degradation (DoS) or unexpected application behavior if a client requests too many records.
+- Preconditions and request data: System contains >100 orders. Request 1: `GET /v1/orders?limit=100` (Valid boundary). Request 2: `GET /v1/orders?limit=101` (Invalid boundary).
+
+Assertions:
+- For limit=100:* Status `200 OK`, `data` array length is exactly 100.
+- For limit=101:* Status `400 Bad Request` (or `422`), indicating the limit exceeds the maximum allowed.
+
+One negative case with expected error behaviour: Request with `limit=0`. Expected: `400 Bad Request` (violates `minimum: 1`).
+
+
+Part B — Execute or demonstrate one scenario
+
+Chosen Scenario: Retrieve Orders with Default Pagination (Happy Path)
+Path Selected: Automation path (using Java, REST Assured, and TestNG)
+
+Three to five lines on CI stability:
+1. Environment Isolation: Base URLs and `API_TOKEN` are injected via environment variables rather than hardcoded, preventing pipeline failures when switching between staging and production.
+2. Dynamic Data Handling: Instead of asserting exact IDs or timestamps (which break CI), the tests assert on structure (types, required fields) and business logic (counts, valid statuses).
+3. Retry Mechanism: Implementing a retry listener for flaky network calls (e.g., 503 Service Unavailable) ensures transient infrastructure issues don't fail the build.
+4. Parallel Execution: Tests are written to be stateless (no shared mutable state between test methods), allowing the CI runner to execute them in parallel without race conditions.
+
+Part C — Contract awareness
+
+If the API provider changed the `status` enum in the `GET /orders` response (e.g., renaming `"pending"` to `"awaiting_fulfillment"`), it would break a consumer that relies on filtering or displaying orders based on the original `"pending"` value, causing the consumer's UI to show empty lists or throw mapping errors. A consumer contract test (using tools like Pact) would detect this because the consumer defines its expectation in a contract (e.g., "I expect a `status` field that can be `pending`"). During the provider's CI/CD pipeline, the provider runs the consumer's contract tests against its new code. If the provider renames the enum value, the contract test fails immediately, alerting the provider that they are about to break a downstream consumer before the change is deployed.
